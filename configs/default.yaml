@@ -1,0 +1,54 @@
+# Default training configuration for plant disease classification.
+# Every field here can be overridden for ablation experiments.
+
+data:
+  label_mapping_path: configs/label_mapping.json
+  split_path: data/processed/split.json
+  image_size: 224
+  batch_size: 32
+  num_workers: 2          # Colab free-tier safe value
+  use_weighted_sampler: true
+
+model:
+  backbone: efficientnet_b0   # timm model name. Try: efficientnet_b3, convnext_tiny, resnet50
+  pretrained: true
+  num_classes: 39
+  dropout: 0.3
+
+training:
+  epochs: 30
+  optimizer: adamw
+  lr_head: 1.0e-3         # LR for the classification head
+  lr_backbone: 1.0e-5     # Smaller LR for the pretrained backbone
+  weight_decay: 1.0e-4
+  scheduler: cosine
+  warmup_epochs: 3
+  label_smoothing: 0.1
+  grad_clip_norm: 1.0
+  mixed_precision: true
+  freeze_backbone_epochs: 5   # Freeze backbone for the first N epochs
+  early_stopping_patience: 7
+  seed: 42
+
+loss:
+  name: cross_entropy      # one of: cross_entropy, focal, weighted_ce
+
+augmentation:
+  crop_scale: [0.7, 1.0]
+  hflip_p: 0.5
+  vflip_p: 0.3
+  rotation_degrees: 15
+  brightness: 0.2
+  contrast: 0.2
+  saturation: 0.2
+  hue: 0.05                # Keep small — disease color is a key feature
+  translate: [0.05, 0.05]
+
+wandb:
+  project: plant-disease-detection
+  entity: null             # Set via env var WANDB_ENTITY or leave null
+  log_artifacts: true
+
+paths:
+  checkpoint_dir: models/checkpoints
+  best_model_path: models/best_model.pth
