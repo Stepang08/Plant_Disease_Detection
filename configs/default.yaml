@@ -25,7 +25,7 @@ training:
   warmup_epochs: 3
   label_smoothing: 0.1
   grad_clip_norm: 1.0
-  mixed_precision: true
+  mixed_precision: false    # Disabled: caused NaN instability after backbone unfreeze
   freeze_backbone_epochs: 5   # Freeze backbone for the first N epochs
   early_stopping_patience: 7
   seed: 42

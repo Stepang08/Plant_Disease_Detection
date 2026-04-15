@@ -137,6 +137,7 @@ class Trainer:
         self.model.train()
         total_loss = 0.0
         n_batches = 0
+        n_skipped = 0
         start = time.time()
         for images, labels in self.train_loader:
             images = images.to(self.device, non_blocking=True)
@@ -146,6 +147,12 @@ class Trainer:
             with torch.cuda.amp.autocast(enabled=self.use_amp):
                 logits = self.model(images)
                 loss = self.criterion(logits, labels)
+
+            # Skip a batch if loss is non-finite (NaN/Inf). Protects against
+            # rare mixed-precision overflows at freeze->unfreeze transitions.
+            if not torch.isfinite(loss):
+                n_skipped += 1
+                continue
 
             if self.use_amp:
                 self.scaler.scale(loss).backward()
@@ -167,7 +174,8 @@ class Trainer:
             total_loss += loss.item()
             n_batches += 1
 
-        elapsed = time.time() - start
+        if n_skipped:
+            print(f"  (skipped {n_skipped} batches with non-finite loss)")
         return total_loss / max(1, n_batches)
 
     @torch.no_grad()

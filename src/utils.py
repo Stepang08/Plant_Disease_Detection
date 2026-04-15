@@ -45,6 +45,13 @@ def compute_mAP(
     # One-vs-rest binarization for multi-class mAP.
     targets_onehot = np.eye(num_classes)[targets]
 
+    # Defensive: replace any NaN/inf in probs with 0 so a single bad batch
+    # doesn't crash the whole evaluation. We log a warning if found.
+    if not np.isfinite(probs).all():
+        n_bad = int((~np.isfinite(probs)).sum())
+        print(f"[compute_mAP] WARNING: {n_bad} non-finite values in probs, replacing with 0")
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+
     per_class_ap: dict[int, float] = {}
     for cls in range(num_classes):
         # Classes with no positive samples in this batch get AP=NaN and are excluded.
