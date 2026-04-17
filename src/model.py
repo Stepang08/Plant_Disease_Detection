@@ -57,12 +57,42 @@ class PlantDiseaseModel(nn.Module):
             p.requires_grad = True
 
 
+class DINOv2Model(nn.Module):
+    """DINOv2 frozen backbone + linear head. Only the head is trained."""
+
+    def __init__(self, num_classes: int, model_name: str = "dinov2_vitb14", dropout: float = 0.3):
+        super().__init__()
+        self.backbone_name = model_name
+        self.backbone = torch.hub.load("facebookresearch/dinov2", model_name)
+        for p in self.backbone.parameters():
+            p.requires_grad = False
+        self.backbone.eval()
+        num_features = self.backbone.embed_dim
+        self.head = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(num_features, num_classes),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            features = self.backbone(x)
+        return self.head(features)
+
+    def freeze_backbone(self) -> None:
+        pass  # Already frozen
+
+    def unfreeze_backbone(self) -> None:
+        pass  # Keep frozen for foundation model approach
+
+
 def create_model(
     backbone: str,
     num_classes: int,
     pretrained: bool = True,
     dropout: float = 0.3,
-) -> PlantDiseaseModel:
+) -> nn.Module:
+    if backbone.startswith("dinov2"):
+        return DINOv2Model(num_classes=num_classes, model_name=backbone, dropout=dropout)
     return PlantDiseaseModel(
         backbone=backbone,
         num_classes=num_classes,
