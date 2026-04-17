@@ -67,13 +67,16 @@ All experiments tracked in Weights & Biases:
 
 | Run | Backbone | Params | Val mAP | Notes |
 |-----|----------|--------|---------|-------|
-| Baseline | EfficientNet-B0 | 5.3M | 0.65 | Default hyperparameters |
-| Tuned B0 | EfficientNet-B0 | 5.3M | 0.64+ | Higher backbone LR (1e-4) |
-| B3 | EfficientNet-B3 | 10.8M | 0.62 | Overfits — val loss unstable |
+| Baseline | EfficientNet-B0 | 5.3M (4.06M trainable) | 0.65 | Default hyperparameters |
+| Tuned B0 | EfficientNet-B0 | 5.3M (4.06M trainable) | 0.66 | Higher backbone LR (1e-4) |
+| B3 | EfficientNet-B3 | 10.8M trainable | 0.62 | Overfits — val loss unstable |
+| **DINOv2** | **ViT-B/14 + linear** | **30K trainable** | **0.86** | **Frozen backbone, linear head** |
 
 ## API
 
 FastAPI endpoint with Swagger documentation.
+
+**Live API:** https://stepang08-plant-disease-detection.hf.space/docs
 
 ```bash
 # Local

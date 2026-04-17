@@ -2,7 +2,6 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install only inference dependencies (not training/dev deps).
 RUN pip install --no-cache-dir \
     torch --index-url https://download.pytorch.org/whl/cpu \
     torchvision --index-url https://download.pytorch.org/whl/cpu \
@@ -13,13 +12,13 @@ RUN pip install --no-cache-dir \
     Pillow \
     scikit-learn \
     pyyaml \
-    numpy
+    numpy \
+    huggingface-hub
 
-# Copy application code.
 COPY src/ src/
 COPY api/ api/
 COPY configs/ configs/
-COPY models/best_model.pth models/best_model.pth
+RUN mkdir -p models
 
 EXPOSE 7860
 

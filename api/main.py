@@ -23,21 +23,44 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _state: dict = {}
 
 
+HF_MODEL_REPO = "Stepang08/plant-disease-model"
+HF_MODEL_FILE = "dinov2_best.pth"
+
+
+def _download_model_if_needed() -> Path:
+    """Download model weights from HuggingFace Hub if not present locally."""
+    local_path = PROJECT_ROOT / "models" / "best_model.pth"
+    if local_path.exists():
+        return local_path
+    print(f"Downloading model from {HF_MODEL_REPO}...")
+    from huggingface_hub import hf_hub_download
+    downloaded = hf_hub_download(
+        repo_id=HF_MODEL_REPO,
+        filename=HF_MODEL_FILE,
+        local_dir=PROJECT_ROOT / "models",
+    )
+    dl_path = Path(downloaded)
+    if dl_path.name != "best_model.pth":
+        dl_path.rename(local_path)
+    print(f"Model downloaded to {local_path}")
+    return local_path
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load the model once at server start, release on shutdown."""
     from src.predict import load_inference_model
 
-    checkpoint = PROJECT_ROOT / "models" / "best_model.pth"
-    if not checkpoint.exists():
-        print(f"WARNING: {checkpoint} not found — /predict will fail until a model is available.")
-        _state["model"] = None
-        _state["label_names"] = None
-    else:
+    try:
+        checkpoint = _download_model_if_needed()
         model, label_names = load_inference_model(checkpoint)
         _state["model"] = model
         _state["label_names"] = label_names
         print(f"Model loaded: {checkpoint.name} ({len(label_names)} classes)")
+    except Exception as e:
+        print(f"WARNING: Failed to load model: {e}")
+        _state["model"] = None
+        _state["label_names"] = None
     yield
     _state.clear()
 
