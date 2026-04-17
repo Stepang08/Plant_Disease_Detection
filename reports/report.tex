@@ -144,38 +144,61 @@ TTA (5 views) & \textbf{0.692} & \textbf{62.0\%} & \textbf{89.9\%} \\
 
 TTA provides a substantial improvement across all metrics, with mAP increasing by 4.7 percentage points. This is a significant gain for zero additional training cost --- only 5$\times$ more inference time. The improvement comes from averaging out prediction noise: a single augmented view might confuse the model, but the consensus across 5 views is more reliable.
 
+\subsection{Foundation Model: DINOv2 + Linear Head}
+
+Given the limited dataset size, I investigated whether a self-supervised foundation model could provide better features than supervised ImageNet pretraining. I used DINOv2 (ViT-B/14) \cite{dinov2} as a \textit{frozen} feature extractor and trained only a linear classification head on the extracted 768-dimensional feature vectors.
+
+\begin{table}[H]
+\centering
+\caption{Comparison of all approaches. DINOv2 achieves the highest mAP with the fewest trainable parameters and shortest training time.}
+\begin{tabular}{lrrrr}
+\toprule
+Model & Trainable Params & Training Time & Val mAP & Top-1 Acc \\
+\midrule
+EfficientNet-B3 (fine-tuned) & 10.76M & $\sim$60 min & 0.622 & 52.6\% \\
+EfficientNet-B0 (fine-tuned) & 4.06M & $\sim$30 min & 0.646 & 58.2\% \\
+EfficientNet-B0 + TTA & 4.06M & $\sim$30 min & 0.692 & 62.0\% \\
+\textbf{DINOv2 + linear head} & \textbf{30K} & \textbf{$\sim$5 min} & \textbf{0.863} & \textbf{80.5\%} \\
+\bottomrule
+\end{tabular}
+\label{tab:all_models}
+\end{table}
+
+The DINOv2 approach dramatically outperforms all fine-tuned EfficientNet variants (Table~\ref{tab:all_models}). With 133$\times$ fewer trainable parameters and 6$\times$ less training time, it achieves +17 percentage points higher mAP. This result demonstrates that on small datasets, the quality of the feature representation matters far more than the complexity of the classifier trained on top.
+
+The key insight is that DINOv2's self-supervised pretraining on 142 million images produces features that are inherently more robust and transferable than ImageNet-supervised features. Since only a linear layer is trained, there is virtually no risk of overfitting --- solving the core limitation that plagued EfficientNet-B3.
+
 % ============================================================
 \section{Results and Analysis}
 
-My final model (EfficientNet-B0, tuned, with TTA) achieves:
+My final model (DINOv2 ViT-B/14 + linear head) achieves:
 \begin{itemize}
-    \item \textbf{mAP: 0.692} (mean across 39 classes)
-    \item \textbf{Top-1 accuracy: 62.0\%}
-    \item \textbf{Top-5 accuracy: 89.9\%}
+    \item \textbf{mAP: 0.863} (mean across 39 classes)
+    \item \textbf{Top-1 accuracy: 80.5\%}
+    \item \textbf{Top-5 accuracy: 98.6\%}
+    \item \textbf{Trainable parameters: 30K}
 \end{itemize}
 
 \subsection{Per-Class Analysis}
 
-% Per-class AP figure omitted — the table below covers the same information.
-
 \begin{table}[H]
 \centering
-\caption{Top 5 easiest and hardest disease classes by Average Precision (with TTA).}
+\caption{Top 5 easiest and hardest disease classes by Average Precision (DINOv2).}
 \begin{tabular}{lr|lr}
 \toprule
 \textbf{Easiest (Highest AP)} & \textbf{AP} & \textbf{Hardest (Lowest AP)} & \textbf{AP} \\
 \midrule
-smut & 1.000 & bacterial leaf spot & 0.217 \\
-loose smut & 0.951 & bacterial leaf streak & 0.239 \\
-blossom end rot & 0.944 & leaf spot & 0.271 \\
-black leaf streak & 0.936 & septoria leaf spot & 0.386 \\
-head scab & 0.935 & angular leaf spot & 0.417 \\
+smut & 1.000 & bacterial leaf spot & 0.361 \\
+blossom end rot & 1.000 & bacterial leaf streak & 0.437 \\
+tar spot & 1.000 & septoria leaf spot & 0.629 \\
+leaf curl & 1.000 & septoria blotch & 0.657 \\
+bacterial wilt & 0.989 & brown spot & 0.706 \\
 \bottomrule
 \end{tabular}
 \label{tab:perclass}
 \end{table}
 
-\textbf{Why some diseases are easy:} Smut (AP = 1.0) produces black, swollen masses on the plant that look unlike any other disease. Blossom end rot causes distinctive dark patches on the bottom of fruits. These diseases have unique visual signatures that transfer well across plant species.
+\textbf{Why some diseases are easy:} Four classes achieve perfect AP of 1.0. Smut produces black, swollen masses that look unlike any other disease. Blossom end rot causes distinctive dark patches on fruits. These diseases have unique visual signatures that DINOv2's rich features capture effortlessly.
 
 % ---- FIGURE: Sample images ----
 \begin{figure}[H]
@@ -201,15 +224,17 @@ head scab & 0.935 & angular leaf spot & 0.417 \\
 I built a plant disease classification system that identifies 39 diseases from leaf images regardless of the host plant. My key findings:
 
 \begin{enumerate}
-    \item \textbf{Smaller models win on small datasets.} EfficientNet-B0 (4M params) outperformed B3 (10.8M params) because the larger model overfits on this 8K-image dataset.
-    \item \textbf{Test-time augmentation is highly effective.} TTA improved mAP by 4.7\% at zero training cost, making it the single most impactful technique I applied.
-    \item \textbf{Visually similar diseases remain challenging.} The various leaf spot variants are the model's primary failure mode, suggesting that finer-grained visual features are needed for these classes.
+    \item \textbf{Foundation models dominate on small datasets.} DINOv2 with a frozen backbone and linear head (30K trainable params) achieved 0.86 mAP, outperforming fine-tuned EfficientNet-B0 (4M params, 0.69 mAP) by 17 percentage points. The quality of the feature representation matters more than the classifier trained on top.
+    \item \textbf{Bigger is not always better for fine-tuning.} EfficientNet-B3 (10.8M params) performed worse than B0 (4M params) due to overfitting on the 8K-image dataset.
+    \item \textbf{Efficiency and accuracy are not trade-offs.} The most accurate approach (DINOv2) was also the most efficient: 133$\times$ fewer trainable parameters and 6$\times$ faster training than EfficientNet-B0.
+    \item \textbf{Visually similar diseases remain challenging.} Bacterial leaf spot (AP = 0.36) and related leaf spot variants are the primary failure mode across all models.
 \end{enumerate}
 
 All code is publicly available at \url{https://github.com/Stepang08/Plant_Disease_Detection}, with experiment logs on \href{https://wandb.ai/stepan-goyunyan-physmath-school-after-a-shahinyan-/plant-disease-detection}{Weights \& Biases}.
 
-\begin{thebibliography}{1}
+\begin{thebibliography}{2}
 \bibitem{efficientnet} Tan, M. and Le, Q., 2019. EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks. \textit{ICML 2019}.
+\bibitem{dinov2} Oquab, M. et al., 2024. DINOv2: Learning Robust Visual Features without Supervision. \textit{TMLR 2024}.
 \end{thebibliography}
 
 \end{document}
