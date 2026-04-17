@@ -53,9 +53,9 @@ uvicorn api.main:app --reload
 
 ## Approach
 
-- **Backbone:** EfficientNet-B0 (5.3M params) via `timm`
-- **Transfer learning:** Freeze backbone for 3 epochs, then fine-tune with discriminative learning rates
-- **Augmentation:** RandomResizedCrop, flips, rotation, color jitter (small hue — disease color matters)
+- **Final model:** DINOv2 (ViT-B/14) frozen backbone + linear head (30K trainable params, 0.86 mAP)
+- **Baseline:** EfficientNet-B0 fine-tuned (4.06M trainable params, 0.69 mAP with TTA)
+- **Key insight:** Foundation model features with minimal training outperform full fine-tuning by 17% mAP on this dataset size
 - **Class imbalance:** Inverse-frequency weighted sampler
 - **Metric:** mAP (mean Average Precision) with per-class AP tracking
 

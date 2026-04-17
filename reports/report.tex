@@ -15,7 +15,7 @@
 \maketitle
 
 \begin{abstract}
-I present a plant disease classification system that identifies 39 disease types from leaf images, regardless of the host plant species. Using EfficientNet-B0 with transfer learning and test-time augmentation, I achieve a mean Average Precision (mAP) of 0.69 on my validation set. I show that a compact 4M-parameter model outperforms a larger 10.8M-parameter variant on this dataset, and that test-time augmentation provides a 5\% mAP improvement at no training cost. My analysis reveals that visually distinctive diseases (e.g., smut, blossom end rot) are classified near-perfectly, while visually similar leaf spot variants remain the primary challenge.
+I present a plant disease classification system that identifies 39 disease types from leaf images, regardless of the host plant species. Using DINOv2 as a frozen feature extractor with a linear classification head, I achieve a mean Average Precision (mAP) of 0.86 with only 30K trainable parameters. I compare this against fine-tuned EfficientNet-B0 (4M params, 0.69 mAP) and B3 (10.8M params, 0.62 mAP), demonstrating that foundation model features with minimal training outperform full fine-tuning by 17 percentage points while using 133$\times$ fewer trainable parameters. My analysis reveals that visually distinctive diseases (e.g., smut, blossom end rot) are classified perfectly, while visually similar leaf spot variants remain the primary challenge.
 \end{abstract}
 
 % ============================================================
