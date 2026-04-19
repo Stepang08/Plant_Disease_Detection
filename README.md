@@ -65,7 +65,7 @@ uvicorn api.main:app --reload
 
 All experiments tracked in Weights & Biases:
 
-**[W&B Project Dashboard](https://wandb.ai/stepan-goyunyan-physmath-school-after-a-shahinyan-/plant-disease-detection)**
+**[W&B Project Dashboard](https://wandb.ai/stepan-goyunyan-physmath-school-after-a-shahinyan-/plant-disease-classifier)**
 
 | Run | Backbone | Trainable Params | Val mAP | Notes |
 |-----|----------|--------|---------|-------|
