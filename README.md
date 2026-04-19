@@ -15,6 +15,7 @@ pip install -r requirements.txt
 # Run the API
 uvicorn api.main:app --reload
 # Open http://localhost:8000/docs for Swagger UI
+# Model weights are downloaded automatically from HuggingFace Hub on first run.
 ```
 
 ## Project Structure
@@ -23,7 +24,7 @@ uvicorn api.main:app --reload
 ├── src/
 │   ├── dataset.py       # Label mapping (82 folders → 39 diseases), stratified split
 │   ├── transforms.py    # Train/val/TTA augmentation pipelines
-│   ├── model.py         # Model factory (timm-based EfficientNet, ConvNeXt, ResNet)
+│   ├── model.py         # Model factory (EfficientNet via timm, DINOv2 via torch.hub)
 │   ├── train.py         # Training loop with transfer learning and W&B logging
 │   ├── evaluate.py      # mAP evaluation, per-class AP, confusion matrix
 │   ├── predict.py       # Single-image inference with optional TTA
@@ -32,13 +33,14 @@ uvicorn api.main:app --reload
 │   ├── main.py          # FastAPI: POST /predict, GET /health, GET /classes
 │   └── schemas.py       # Pydantic request/response models
 ├── notebooks/
-│   ├── 01_eda.ipynb     # Exploratory data analysis (rendered with plots)
-│   ├── 02_training.ipynb # Colab-ready training notebook
-│   └── 03_evaluation.ipynb # Model evaluation and error analysis
+│   ├── 01_eda.ipynb              # Exploratory data analysis (rendered with plots)
+│   ├── 02_training.ipynb         # EfficientNet training (Colab-ready)
+│   ├── 03_dinov2_training.ipynb  # DINOv2 ViT-B/14 training
+│   └── 04_dinov2_vitl14_training.ipynb  # DINOv2 ViT-L/14 training (final model)
 ├── configs/
 │   ├── default.yaml     # Training hyperparameters
 │   └── label_mapping.json # 39 disease class definitions
-├── models/              # Saved model weights
+├── models/              # Saved model weights (downloaded from HF Hub)
 ├── reports/             # Technical report (PDF)
 ├── tests/               # API tests
 ├── Dockerfile           # For HuggingFace Spaces deployment
@@ -53,10 +55,10 @@ uvicorn api.main:app --reload
 
 ## Approach
 
-- **Final model:** DINOv2 (ViT-B/14) frozen backbone + linear head (30K trainable params, 0.86 mAP)
-- **Baseline:** EfficientNet-B0 fine-tuned (4.06M trainable params, 0.69 mAP with TTA)
-- **Key insight:** Foundation model features with minimal training outperform full fine-tuning by 17% mAP on this dataset size
-- **Class imbalance:** Inverse-frequency weighted sampler
+- **Final model:** DINOv2 (ViT-L/14) frozen backbone + linear head (40K trainable params, 0.90 mAP)
+- **Baseline:** EfficientNet-B0 fine-tuned (4.06M trainable params, 0.66 mAP)
+- **Key insight:** Foundation model features with minimal training outperform full fine-tuning by 24% mAP while using 100× fewer trainable parameters
+- **Class imbalance:** Inverse-frequency weighted sampler (fine-tuning only)
 - **Metric:** mAP (mean Average Precision) with per-class AP tracking
 
 ## Experiments
@@ -65,18 +67,21 @@ All experiments tracked in Weights & Biases:
 
 **[W&B Project Dashboard](https://wandb.ai/stepan-goyunyan-physmath-school-after-a-shahinyan-/plant-disease-detection)**
 
-| Run | Backbone | Params | Val mAP | Notes |
+| Run | Backbone | Trainable Params | Val mAP | Notes |
 |-----|----------|--------|---------|-------|
-| Baseline | EfficientNet-B0 | 5.3M (4.06M trainable) | 0.65 | Default hyperparameters |
-| Tuned B0 | EfficientNet-B0 | 5.3M (4.06M trainable) | 0.66 | Higher backbone LR (1e-4) |
-| B3 | EfficientNet-B3 | 10.8M trainable | 0.62 | Overfits — val loss unstable |
-| **DINOv2** | **ViT-B/14 + linear** | **30K trainable** | **0.86** | **Frozen backbone, linear head** |
+| Baseline | EfficientNet-B0 | 4.06M | 0.651 | Default hyperparameters |
+| Tuned B0 | EfficientNet-B0 | 4.06M | 0.656 | Higher backbone LR (1e-4) |
+| B3 | EfficientNet-B3 | 10.76M | 0.622 | Overfits — val loss unstable |
+| DINOv2 B/14 | ViT-B/14 + linear | 30K | 0.863 | Frozen backbone, linear head |
+| **DINOv2 L/14** | **ViT-L/14 + linear** | **40K** | **0.897** | **Final model** |
 
 ## API
 
 FastAPI endpoint with Swagger documentation.
 
 **Live API:** https://stepang08-plant-disease-detection.hf.space/docs
+
+**Model weights:** https://huggingface.co/Stepang08/plant-disease-model
 
 ```bash
 # Local
@@ -95,12 +100,11 @@ docker run -p 7860:7860 plant-disease
 
 ## Training (Colab)
 
-Open `notebooks/02_training.ipynb` in Google Colab with a T4 GPU runtime. The notebook handles:
-- Cloning the repo
-- Mounting Google Drive for dataset access
-- Installing dependencies
-- Running training with W&B logging
-- Saving checkpoints to Drive
+Training notebooks are designed for Google Colab with a T4 GPU runtime:
+
+- `notebooks/02_training.ipynb` — EfficientNet fine-tuning
+- `notebooks/03_dinov2_training.ipynb` — DINOv2 ViT-B/14 (0.86 mAP)
+- `notebooks/04_dinov2_vitl14_training.ipynb` — DINOv2 ViT-L/14 (0.90 mAP, final model)
 
 ## Report
 

@@ -28,7 +28,7 @@ The dataset contains approximately 8{,}000 images organized into 82 plant-diseas
 My key contributions:
 \begin{itemize}
     \item A label mapping pipeline that correctly reduces 82 folder-level classes to 39 disease-only classes, handling edge cases like multi-word plant names and similarly named diseases.
-    \item A systematic comparison of fine-tuning (EfficientNet-B0, B3) against a frozen foundation model approach (DINOv2 + linear head), showing that the latter achieves +20\% mAP with 133$\times$ fewer trainable parameters.
+    \item A systematic comparison of fine-tuning (EfficientNet-B0, B3) against a frozen foundation model approach (DINOv2 + linear head), showing that the latter achieves +24\% mAP with 100$\times$ fewer trainable parameters.
     \item A deployed production API with Swagger documentation for real-time disease prediction.
 \end{itemize}
 
@@ -55,7 +55,7 @@ My key contributions:
 
 I explored two fundamentally different approaches:
 
-\textbf{Approach 1: Fine-tuning.} I use EfficientNet-B0 \cite{efficientnet} as a backbone, loaded with ImageNet-pretrained weights via the \texttt{timm} library. The original classification head is replaced with a custom head consisting of a dropout layer ($p=0.3$) followed by a linear layer mapping from the 1{,}280-dimensional feature space to 39 output classes. The total model has 4.06 million trainable parameters.
+\textbf{Approach 1: Fine-tuning.} I use EfficientNet \cite{efficientnet} backbones loaded with ImageNet-pretrained weights via the \texttt{timm} library. I evaluated two variants: EfficientNet-B0 (4.06M parameters) and EfficientNet-B3 (10.76M parameters). The original classification head is replaced with a custom head consisting of a dropout layer ($p=0.3$) followed by a linear layer mapping to 39 output classes.
 
 \textbf{Approach 2: Frozen foundation model.} I use DINOv2 \cite{dinov2}, a self-supervised vision transformer pretrained on 142 million images. I evaluated two variants: ViT-B/14 (768-dim features, 30K trainable params) and ViT-L/14 (1{,}024-dim features, 40K trainable params). The entire backbone is frozen --- no gradients flow through it. I extract 1{,}024-dimensional feature vectors for all images in a single forward pass, then train only a linear classification layer (1{,}024 $\rightarrow$ 39) on these features. This results in only $\sim$40K trainable parameters.
 
@@ -63,7 +63,7 @@ I explored two fundamentally different approaches:
 
 \textbf{Fine-tuning (EfficientNet).} I first train only the classification head while keeping the backbone frozen. This allows the head to adapt to the disease classes without disrupting the pretrained features. After the freeze phase, I unfreeze the backbone and fine-tune the entire network with discriminative learning rates --- a smaller rate for the backbone and a larger rate for the head (exact values varied as part of the hyperparameter ablation in Section 3.2). I use the AdamW optimizer with weight decay $10^{-4}$ and a cosine annealing learning rate schedule with linear warmup. I apply label smoothing of 0.1 to the cross-entropy loss, which prevents the model from becoming overconfident and improves mAP calibration. Gradient clipping with max norm 1.0 ensures training stability. For regularization, I use dropout ($p=0.3$), label smoothing (0.1), and weight decay ($10^{-4}$). Early stopping with patience of 10 epochs on validation mAP prevents overfitting.
 
-\textbf{Foundation model (DINOv2).} The training pipeline is much simpler: I first extract features for all images using the frozen DINOv2 backbone (a single forward pass, $\sim$2 minutes on a T4 GPU). Then I train the linear head for 50 epochs using AdamW (lr = $10^{-3}$, weight decay $10^{-4}$) with label smoothing of 0.1. No data augmentation is needed because the frozen backbone already produces robust features. Total training time: $\sim$5 minutes.
+\textbf{Foundation model (DINOv2).} The training pipeline is much simpler: I first extract features for all images using the frozen DINOv2 backbone (a single forward pass, $\sim$6 minutes for ViT-L/14 on a T4 GPU). Then I train the linear head for 200 epochs using AdamW (lr = $10^{-3}$, weight decay $10^{-4}$) with label smoothing of 0.1. No data augmentation is needed because the frozen backbone already produces robust features. Total training time: $\sim$7 minutes.
 
 \textbf{Augmentation (fine-tuning only).} Training images are resized to 256 pixels on the shorter edge, then randomly cropped to $224 \times 224$. I apply random horizontal and vertical flips, rotation up to 15\textdegree, small translations, and color jitter. I keep hue jitter small (0.05) because disease color is a critical diagnostic feature --- for example, rust diseases have distinctive orange coloration that should not be distorted.
 
@@ -186,7 +186,7 @@ My final model (DINOv2 ViT-L/14 + linear head) achieves:
 
 \begin{table}[H]
 \centering
-\caption{Top 5 easiest and hardest disease classes by Average Precision (DINOv2).}
+\caption{Top 5 easiest and hardest disease classes by Average Precision (DINOv2 ViT-B/14).}
 \begin{tabular}{lr|lr}
 \toprule
 \textbf{Easiest (Highest AP)} & \textbf{AP} & \textbf{Hardest (Lowest AP)} & \textbf{AP} \\
@@ -215,12 +215,12 @@ bacterial wilt & 0.989 & brown spot & 0.706 \\
 
 \subsection{Out-of-Distribution Test}
 
-As an informal test, I uploaded a photo of my own rosemary plant showing signs of disease (Figure~\ref{fig:rosemary}) --- a species not present in the training data. The model predicted ``sheath blight'' with only 9\% confidence, with the remaining probability spread across other classes. While the specific prediction was incorrect, the model correctly identified a blight-like pattern in the browning stems, and the low confidence score honestly reflects its uncertainty when encountering an unseen plant species. This suggests the learned features capture general disease patterns, but the model appropriately avoids overconfident predictions on out-of-distribution inputs.
+As an informal test, I uploaded a photo of my own rosemary plant showing signs of disease (Figure~\ref{fig:rosemary}) --- a species not present in the training data. The model predicted ``leaf spot'' with only 21\% confidence, followed by ``alternaria leaf spot'' at 15\% and ``late blight'' at 8\%. While the specific predictions were incorrect, the model reasonably identified spot-like and blight-like patterns in the browning stems, and the low confidence scores honestly reflect its uncertainty when encountering an unseen plant species. This suggests the learned features capture general disease patterns, but the model appropriately avoids overconfident predictions on out-of-distribution inputs.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.4\textwidth]{rosemary.jpg}
-    \caption{My rosemary plant with visible disease symptoms (browning stems, wilting). Not in the training data --- the model correctly expressed low confidence (9\%).}
+    \caption{My rosemary plant with visible disease symptoms (browning stems, wilting). Not in the training data --- the model correctly expressed low confidence (21\%).}
     \label{fig:rosemary}
 \end{figure}
 
