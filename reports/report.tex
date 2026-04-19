@@ -7,7 +7,7 @@
 \usepackage{float}
 \usepackage{subcaption}
 
-\title{Plant Disease Classification from Leaf Images:\\A Transfer Learning Approach with EfficientNet}
+\title{Plant Disease Classification from Leaf Images:\\From Fine-Tuning to Foundation Models}
 \author{Stepan Goyunyan}
 \date{April 2026}
 
@@ -15,7 +15,7 @@
 \maketitle
 
 \begin{abstract}
-I present a plant disease classification system that identifies 39 disease types from leaf images, regardless of the host plant species. Using DINOv2 as a frozen feature extractor with a linear classification head, I achieve a mean Average Precision (mAP) of 0.86 with only 30K trainable parameters. I compare this against fine-tuned EfficientNet-B0 (4M params, 0.69 mAP) and B3 (10.8M params, 0.62 mAP), demonstrating that foundation model features with minimal training outperform full fine-tuning by 17 percentage points while using 133$\times$ fewer trainable parameters. My analysis reveals that visually distinctive diseases (e.g., smut, blossom end rot) are classified perfectly, while visually similar leaf spot variants remain the primary challenge.
+I present a plant disease classification system that identifies 39 disease types from leaf images, regardless of the host plant species. Using DINOv2 (ViT-L/14) as a frozen feature extractor with a linear classification head, I achieve a mean Average Precision (mAP) of 0.90 with only 40K trainable parameters. I compare this against fine-tuned EfficientNet-B0 (4M params, 0.66 mAP) and B3 (10.8M params, 0.62 mAP), demonstrating that foundation model features with minimal training outperform full fine-tuning by 24 percentage points while using 100$\times$ fewer trainable parameters. My analysis reveals that visually distinctive diseases (e.g., smut, blossom end rot) are classified perfectly, while visually similar leaf spot variants remain the primary challenge.
 \end{abstract}
 
 % ============================================================
@@ -28,8 +28,8 @@ The dataset contains approximately 8{,}000 images organized into 82 plant-diseas
 My key contributions:
 \begin{itemize}
     \item A label mapping pipeline that correctly reduces 82 folder-level classes to 39 disease-only classes, handling edge cases like multi-word plant names and similarly named diseases.
-    \item An ablation study comparing EfficientNet-B0 (4M params) vs.\ B3 (10.8M params), showing that the smaller model generalizes better on this dataset size.
-    \item A demonstration that test-time augmentation (TTA) provides a substantial +5\% mAP improvement at zero additional training cost.
+    \item A systematic comparison of fine-tuning (EfficientNet-B0, B3) against a frozen foundation model approach (DINOv2 + linear head), showing that the latter achieves +20\% mAP with 133$\times$ fewer trainable parameters.
+    \item A deployed production API with Swagger documentation for real-time disease prediction.
 \end{itemize}
 
 % ============================================================
@@ -49,21 +49,23 @@ My key contributions:
 
 \textbf{Data split.} The original validation set contains only 390 images across 71 of the 82 folder classes --- too small for reliable mAP estimation. I merged all images into a single pool (8{,}173 images) and performed a stratified 85/15 split at the folder level, producing 6{,}947 training and 1{,}226 validation images. Stratification by folder (rather than disease) preserves the plant species diversity within each disease class.
 
-\textbf{Class imbalance.} After merging, class sizes range from 90 images (blossom end rot) to 866 images (powdery mildew) --- a 9.6$\times$ imbalance ratio (Figure~\ref{fig:class_dist}). I use inverse-frequency weighted sampling during training, which assigns higher sampling probability to images from rare classes. This ensures the model sees each disease class roughly equally often per epoch.
+\textbf{Class imbalance.} After merging, class sizes range from 90 images (blossom end rot) to 866 images (powdery mildew) --- a 9.6$\times$ imbalance ratio (Figure~\ref{fig:class_dist}). For the fine-tuning approach, I use inverse-frequency weighted sampling, which assigns higher sampling probability to images from rare classes. This ensures the model sees each disease class roughly equally often per epoch. For the DINOv2 approach, weighted sampling is not needed because features are extracted once for all images and the linear head trains on the full feature set each epoch.
 
 \subsection{Model Architecture}
 
-I use EfficientNet-B0 \cite{efficientnet} as my backbone, loaded with ImageNet-pretrained weights via the \texttt{timm} library. The original classification head is replaced with a custom head consisting of a dropout layer ($p=0.3$) followed by a linear layer mapping from the 1{,}280-dimensional feature space to 39 output classes. The total model has 4.06 million parameters.
+I explored two fundamentally different approaches:
+
+\textbf{Approach 1: Fine-tuning.} I use EfficientNet-B0 \cite{efficientnet} as a backbone, loaded with ImageNet-pretrained weights via the \texttt{timm} library. The original classification head is replaced with a custom head consisting of a dropout layer ($p=0.3$) followed by a linear layer mapping from the 1{,}280-dimensional feature space to 39 output classes. The total model has 4.06 million trainable parameters.
+
+\textbf{Approach 2: Frozen foundation model.} I use DINOv2 \cite{dinov2}, a self-supervised vision transformer pretrained on 142 million images. I evaluated two variants: ViT-B/14 (768-dim features, 30K trainable params) and ViT-L/14 (1{,}024-dim features, 40K trainable params). The entire backbone is frozen --- no gradients flow through it. I extract 1{,}024-dimensional feature vectors for all images in a single forward pass, then train only a linear classification layer (1{,}024 $\rightarrow$ 39) on these features. This results in only $\sim$40K trainable parameters.
 
 \subsection{Training Strategy}
 
-\textbf{Transfer learning with staged unfreezing.} I first train only the classification head for 3 epochs while keeping the backbone frozen. This allows the head to adapt to the disease classes without disrupting the pretrained features. After 3 epochs, I unfreeze the backbone and fine-tune the entire network with discriminative learning rates: $10^{-4}$ for the backbone and $3 \times 10^{-3}$ for the head.
+\textbf{Fine-tuning (EfficientNet).} I first train only the classification head while keeping the backbone frozen. This allows the head to adapt to the disease classes without disrupting the pretrained features. After the freeze phase, I unfreeze the backbone and fine-tune the entire network with discriminative learning rates --- a smaller rate for the backbone and a larger rate for the head (exact values varied as part of the hyperparameter ablation in Section 3.2). I use the AdamW optimizer with weight decay $10^{-4}$ and a cosine annealing learning rate schedule with linear warmup. I apply label smoothing of 0.1 to the cross-entropy loss, which prevents the model from becoming overconfident and improves mAP calibration. Gradient clipping with max norm 1.0 ensures training stability. For regularization, I use dropout ($p=0.3$), label smoothing (0.1), and weight decay ($10^{-4}$). Early stopping with patience of 10 epochs on validation mAP prevents overfitting.
 
-\textbf{Optimization.} I use the AdamW optimizer with weight decay $10^{-4}$ and a cosine annealing learning rate schedule with 3-epoch linear warmup. I apply label smoothing of 0.1 to the cross-entropy loss, which prevents the model from becoming overconfident and improves mAP calibration. Gradient clipping with max norm 1.0 ensures training stability.
+\textbf{Foundation model (DINOv2).} The training pipeline is much simpler: I first extract features for all images using the frozen DINOv2 backbone (a single forward pass, $\sim$2 minutes on a T4 GPU). Then I train the linear head for 50 epochs using AdamW (lr = $10^{-3}$, weight decay $10^{-4}$) with label smoothing of 0.1. No data augmentation is needed because the frozen backbone already produces robust features. Total training time: $\sim$5 minutes.
 
-\textbf{Augmentation.} Training images are resized to 256 pixels on the shorter edge, then randomly cropped to $224 \times 224$. I apply random horizontal and vertical flips, rotation up to 15\textdegree, small translations, and color jitter. I keep hue jitter small (0.05) because disease color is a critical diagnostic feature --- for example, rust diseases have distinctive orange coloration that should not be distorted.
-
-\textbf{Regularization.} I use dropout ($p=0.3$), label smoothing (0.1), and weight decay ($10^{-4}$) as three regularization mechanisms. Early stopping with patience of 10 epochs on validation mAP prevents overfitting.
+\textbf{Augmentation (fine-tuning only).} Training images are resized to 256 pixels on the shorter edge, then randomly cropped to $224 \times 224$. I apply random horizontal and vertical flips, rotation up to 15\textdegree, small translations, and color jitter. I keep hue jitter small (0.05) because disease color is a critical diagnostic feature --- for example, rust diseases have distinctive orange coloration that should not be distorted.
 
 \subsection{Evaluation}
 
@@ -85,7 +87,7 @@ I compared EfficientNet-B0 (4.06M parameters) against EfficientNet-B3 (10.76M pa
 \toprule
 Model & Parameters & Val mAP & Val Loss \\
 \midrule
-EfficientNet-B0 & 4.06M & \textbf{0.646} & 1.93 (stable) \\
+EfficientNet-B0 & 4.06M & \textbf{0.651} & 1.93 (stable) \\
 EfficientNet-B3 & 10.76M & 0.622 & 2.0--12.6 (unstable) \\
 \bottomrule
 \end{tabular}
@@ -98,7 +100,7 @@ The larger B3 model performs \textit{worse} than B0 despite having 2.6$\times$ m
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.9\textwidth]{training_curves.png}
-    \caption{Validation mAP (left) and validation loss (right) for EfficientNet-B0 and B3. B0 converges faster and more stably, reaching competitive mAP with 2.6$\times$ fewer parameters.}
+    \caption{Validation mAP (left) and validation loss (right) for EfficientNet-B0 (tuned) and B3. B0 converges faster and more stably, reaching competitive mAP with 2.6$\times$ fewer parameters.}
     \label{fig:training_curves}
 \end{figure}
 
@@ -146,7 +148,7 @@ TTA provides a substantial improvement across all metrics, with mAP increasing b
 
 \subsection{Foundation Model: DINOv2 + Linear Head}
 
-Given the limited dataset size, I investigated whether a self-supervised foundation model could provide better features than supervised ImageNet pretraining. I used DINOv2 (ViT-B/14) \cite{dinov2} as a \textit{frozen} feature extractor and trained only a linear classification head on the extracted 768-dimensional feature vectors.
+Given the limited dataset size, I investigated whether a self-supervised foundation model could provide better features than supervised ImageNet pretraining. I used DINOv2 (ViT-L/14) \cite{dinov2} as a \textit{frozen} feature extractor and trained only a linear classification head on the extracted 1{,}024-dimensional feature vectors.
 
 \begin{table}[H]
 \centering
@@ -155,28 +157,29 @@ Given the limited dataset size, I investigated whether a self-supervised foundat
 \toprule
 Model & Trainable Params & Training Time & Val mAP & Top-1 Acc \\
 \midrule
-EfficientNet-B3 (fine-tuned) & 10.76M & $\sim$60 min & 0.622 & 52.6\% \\
-EfficientNet-B0 (fine-tuned) & 4.06M & $\sim$30 min & 0.646 & 58.2\% \\
+EfficientNet-B3 (fine-tuned) & 10.76M & $\sim$60 min & 0.622 & 50.7\% \\
+EfficientNet-B0 (fine-tuned) & 4.06M & $\sim$30 min & 0.656 & 58.7\% \\
 EfficientNet-B0 + TTA & 4.06M & $\sim$30 min & 0.692 & 62.0\% \\
-\textbf{DINOv2 + linear head} & \textbf{30K} & \textbf{$\sim$5 min} & \textbf{0.863} & \textbf{80.5\%} \\
+DINOv2 ViT-B/14 + linear head & 30K & $\sim$5 min & 0.863 & 80.5\% \\
+\textbf{DINOv2 ViT-L/14 + linear head} & \textbf{40K} & \textbf{$\sim$7 min} & \textbf{0.897} & \textbf{85.1\%} \\
 \bottomrule
 \end{tabular}
 \label{tab:all_models}
 \end{table}
 
-The DINOv2 approach dramatically outperforms all fine-tuned EfficientNet variants (Table~\ref{tab:all_models}). With 133$\times$ fewer trainable parameters and 6$\times$ less training time, it achieves +17 percentage points higher mAP. This result demonstrates that on small datasets, the quality of the feature representation matters far more than the complexity of the classifier trained on top.
+The DINOv2 approach dramatically outperforms all fine-tuned EfficientNet variants (Table~\ref{tab:all_models}). With 100$\times$ fewer trainable parameters and 4$\times$ less training time, it achieves +24 percentage points higher mAP. This result demonstrates that on small datasets, the quality of the feature representation matters far more than the complexity of the classifier trained on top.
 
 The key insight is that DINOv2's self-supervised pretraining on 142 million images produces features that are inherently more robust and transferable than ImageNet-supervised features. Since only a linear layer is trained, there is virtually no risk of overfitting --- solving the core limitation that plagued EfficientNet-B3.
 
 % ============================================================
 \section{Results and Analysis}
 
-My final model (DINOv2 ViT-B/14 + linear head) achieves:
+My final model (DINOv2 ViT-L/14 + linear head) achieves:
 \begin{itemize}
-    \item \textbf{mAP: 0.863} (mean across 39 classes)
-    \item \textbf{Top-1 accuracy: 80.5\%}
-    \item \textbf{Top-5 accuracy: 98.6\%}
-    \item \textbf{Trainable parameters: 30K}
+    \item \textbf{mAP: 0.897} (mean across 39 classes)
+    \item \textbf{Top-1 accuracy: 85.1\%}
+    \item \textbf{Top-5 accuracy: 98.8\%}
+    \item \textbf{Trainable parameters: 40K}
 \end{itemize}
 
 \subsection{Per-Class Analysis}
@@ -210,6 +213,17 @@ bacterial wilt & 0.989 & brown spot & 0.706 \\
 
 \textbf{Why some diseases are hard:} The five hardest classes all contain the word ``spot'' or ``streak'' in their name, and they share a similar visual presentation --- small discolored lesions on leaves (Figure~\ref{fig:samples}). The model struggles to distinguish between bacterial leaf spot, angular leaf spot, septoria leaf spot, and generic leaf spot because their visual features overlap significantly.
 
+\subsection{Out-of-Distribution Test}
+
+As an informal test, I uploaded a photo of my own rosemary plant showing signs of disease (Figure~\ref{fig:rosemary}) --- a species not present in the training data. The model predicted ``sheath blight'' with only 9\% confidence, with the remaining probability spread across other classes. While the specific prediction was incorrect, the model correctly identified a blight-like pattern in the browning stems, and the low confidence score honestly reflects its uncertainty when encountering an unseen plant species. This suggests the learned features capture general disease patterns, but the model appropriately avoids overconfident predictions on out-of-distribution inputs.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.4\textwidth]{rosemary.jpg}
+    \caption{My rosemary plant with visible disease symptoms (browning stems, wilting). Not in the training data --- the model correctly expressed low confidence (9\%).}
+    \label{fig:rosemary}
+\end{figure}
+
 \subsection{Limitations}
 
 \begin{enumerate}
@@ -224,13 +238,13 @@ bacterial wilt & 0.989 & brown spot & 0.706 \\
 I built a plant disease classification system that identifies 39 diseases from leaf images regardless of the host plant. My key findings:
 
 \begin{enumerate}
-    \item \textbf{Foundation models dominate on small datasets.} DINOv2 with a frozen backbone and linear head (30K trainable params) achieved 0.86 mAP, outperforming fine-tuned EfficientNet-B0 (4M params, 0.69 mAP) by 17 percentage points. The quality of the feature representation matters more than the classifier trained on top.
+    \item \textbf{Foundation models dominate on small datasets.} DINOv2 with a frozen backbone and linear head (40K trainable params) achieved 0.90 mAP, outperforming fine-tuned EfficientNet-B0 (4M params, 0.66 mAP) by 24 percentage points. The quality of the feature representation matters more than the classifier trained on top.
     \item \textbf{Bigger is not always better for fine-tuning.} EfficientNet-B3 (10.8M params) performed worse than B0 (4M params) due to overfitting on the 8K-image dataset.
-    \item \textbf{Efficiency and accuracy are not trade-offs.} The most accurate approach (DINOv2) was also the most efficient: 133$\times$ fewer trainable parameters and 6$\times$ faster training than EfficientNet-B0.
+    \item \textbf{Efficiency and accuracy are not trade-offs.} The most accurate approach (DINOv2) was also the most efficient: 100$\times$ fewer trainable parameters and 4$\times$ faster training than EfficientNet-B0.
     \item \textbf{Visually similar diseases remain challenging.} Bacterial leaf spot (AP = 0.36) and related leaf spot variants are the primary failure mode across all models.
 \end{enumerate}
 
-All code is publicly available at \url{https://github.com/Stepang08/Plant_Disease_Detection}, with experiment logs on \href{https://wandb.ai/stepan-goyunyan-physmath-school-after-a-shahinyan-/plant-disease-detection}{Weights \& Biases}.
+All code is publicly available at \url{https://github.com/Stepang08/Plant_Disease_Detection}, with experiment logs on \href{https://wandb.ai/stepan-goyunyan-physmath-school-after-a-shahinyan-/plant-disease-detection}{Weights \& Biases}. A live API with Swagger documentation is deployed at \url{https://stepang08-plant-disease-detection.hf.space/docs}.
 
 \begin{thebibliography}{2}
 \bibitem{efficientnet} Tan, M. and Le, Q., 2019. EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks. \textit{ICML 2019}.
