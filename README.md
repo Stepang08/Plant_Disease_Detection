@@ -55,9 +55,9 @@ uvicorn api.main:app --reload
 
 ## Approach
 
-- **Final model:** DINOv2 (ViT-L/14) frozen backbone + linear head (40K trainable params, 0.90 mAP)
+- **Final model:** DINOv2 (ViT-L/14) frozen backbone + linear head (40K trainable params, 0.897 mAP)
 - **Baseline:** EfficientNet-B0 fine-tuned (4.06M trainable params, 0.66 mAP)
-- **Key insight:** Foundation model features with minimal training outperform full fine-tuning by 24% mAP while using 100× fewer trainable parameters
+- **Key insight:** Foundation model features with minimal training outperform full fine-tuning by +24pp mAP while using 100× fewer trainable parameters
 - **Class imbalance:** Inverse-frequency weighted sampler (fine-tuning only)
 - **Metric:** mAP (mean Average Precision) with per-class AP tracking
 
